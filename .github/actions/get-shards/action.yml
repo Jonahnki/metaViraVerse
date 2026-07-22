@@ -28,35 +28,49 @@ runs:
       id: shards
       shell: bash
       run: |
-        # Run nf-test with dynamic parameter
-        nftest_output=$(nf-test test \
-          --profile +docker \
-          $(if [ -n "${{ inputs.tags }}" ]; then echo "--tag ${{ inputs.tags }}"; fi) \
-          --dry-run \
-          --ci \
-          --changed-since HEAD^) || {
-            echo "nf-test command failed with exit code $?"
-            echo "Full output: $nftest_output"
-            exit 1
+        # Build the command incrementally so we can conditionally include --changed-since
+        cmd=(nf-test test --profile +docker)
+
+        if [ -n "${{ inputs.tags }}" ]; then
+          cmd+=(--tag "${{ inputs.tags }}")
+        fi
+
+        # Include --changed-since only if HEAD^ exists (protect first-commit runs)
+        if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+          cmd+=(--changed-since HEAD^)
+        else
+          echo "No previous commit found (first-commit); skipping --changed-since"
+        fi
+
+        # Add common flags
+        cmd+=(--dry-run --ci)
+
+        # Execute and capture output (preserve stdout/stderr)
+        nftest_output="$("${cmd[@]}" 2>&1)" || {
+          echo "nf-test command failed with exit code $?"
+          echo "Full output:"
+          echo "$nftest_output"
+          exit 1
         }
+
         echo "nf-test dry-run output: $nftest_output"
 
         # Default values for shard and total_shards
         shard="[]"
         total_shards=0
 
-        # Check if there are related tests
+        # Check for "No tests to execute" message
         if echo "$nftest_output" | grep -q 'No tests to execute'; then
           echo "No related tests found."
         else
-          # Extract the number of related tests
-          number_of_shards=$(echo "$nftest_output" | sed -n 's|.*Executed \([0-9]*\) tests.*|\1|p')
+          # Extract the number of related tests robustly using grep -oP (fallback-safe)
+          number_of_shards=$(echo "$nftest_output" | grep -oP 'Executed \K[0-9]+' || true)
           if [[ -n "$number_of_shards" && "$number_of_shards" -gt 0 ]]; then
-            shards_to_run=$(( $number_of_shards < ${{ inputs.max_shards }} ? $number_of_shards : ${{ inputs.max_shards }} ))
+            shards_to_run=$(( number_of_shards < ${{ inputs.max_shards }} ? number_of_shards : ${{ inputs.max_shards }} ))
             shard=$(seq 1 "$shards_to_run" | jq -R . | jq -c -s .)
             total_shards="$shards_to_run"
           else
-            echo "Unexpected output format. Falling back to default values."
+            echo "Unexpected output format or zero tests. Falling back to default shard values."
           fi
         fi
 
