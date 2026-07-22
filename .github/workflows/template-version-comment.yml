@@ -7,6 +7,8 @@ on: pull_request_target
 jobs:
   template_version:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - name: Check out pipeline code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -33,7 +35,7 @@ jobs:
         if: |
           contains(env.OUTPUT, 'nf-core')
         with:
-          repo-token: ${{ secrets.NF_CORE_BOT_AUTH_TOKEN }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
           allow-repeats: false
           message: |
             > [!WARNING]
@@ -43,4 +45,3 @@ jobs:
             > Please update your pipeline to the latest version.
             >
             > For more documentation on how to update your pipeline, please see the [nf-core documentation](https://github.com/nf-core/tools?tab=readme-ov-file#sync-a-pipeline-with-the-template) and [Synchronisation documentation](https://nf-co.re/docs/contributing/sync).
-          #
